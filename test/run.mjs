@@ -391,6 +391,25 @@ try {
     assert.equal(await page.locator(".aap-toast").count(), 0, "never shown again");
   });
 
+  await check("an evaluation's page gets the same pricing switch, and its cost charts follow it", async () => {
+    // These pages keep their models in a store with other names (selectedModels / allModels) but the same shape.
+    await page.goto("https://artificialanalysis.ai/evaluations/terminalbench-4-0", { waitUntil: "domcontentloaded", timeout: 60000 });
+    await scopeBar.waitFor({ timeout: 45000 });
+    await page.waitForTimeout(2500);
+    await scopeBar.locator('[data-aaplus-pricing="plan"]').click();
+    await page.waitForTimeout(1500);
+    const planCharts = await switched();
+    await scopeBar.locator('[data-aaplus-pricing="api"]').click();
+    await page.waitForTimeout(2500);
+    const apiCharts = await switched();
+    for (const [title, figures] of Object.entries(planCharts)) console.log(`     ${title}: plan [${figures.slice(0, 50)}] api [${(apiCharts[title] ?? "").slice(0, 50)}]`);
+    assert.ok(Object.keys(planCharts).length >= 2, "cost charts on the evaluation's page carry the switch");
+    assert.deepEqual(Object.entries(planCharts).filter(([title, figures]) => !figures || figures === apiCharts[title]).map(([title]) => title), [], "charts carrying the switch whose figures did not change");
+    await scopeBar.locator('[data-aaplus-pricing="plan"]').click();
+    await page.waitForTimeout(1000);
+    await shot("evaluation-plan");
+  });
+
   await check("the models page works the same way, and nothing threw", async () => {
     await page.goto("https://artificialanalysis.ai/models", { waitUntil: "domcontentloaded", timeout: 60000 });
     await head.waitFor({ timeout: 45000 });
