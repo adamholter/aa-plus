@@ -66,7 +66,7 @@
       FACTOR.set(row, factor);
       changed = true;
     };
-    for (const row of prov.value.allPageModels) visit(row);
+    for (const row of prov.all) visit(row);
     if (releases) for (const rel of releases.value.allReleases) for (const row of rel.models ?? []) visit(row);
     if (!changed) return;
     if (releases) { const sel = releases.value.selectedReleases; (rawSetter(releases.fiber, sel) ?? releases.value.setSelectedReleases)([...sel]); }
@@ -74,13 +74,23 @@
     if (setFilters) setFilters({ ...filters });
   }
 
+  /**
+   * The page's model store, under whichever names this page gives it: the home and models pages call it
+   * selectedPageModels / allPageModels, an evaluation's page selectedModels / allModels. Same shape either way.
+   */
+  const storeOf = (v) => !v || typeof v !== "object" ? null
+    : typeof v.setSelectedPageModels === "function" && Array.isArray(v.selectedPageModels) && Array.isArray(v.allPageModels) ? { sel: v.selectedPageModels, all: v.allPageModels, set: v.setSelectedPageModels }
+    : typeof v.setSelectedModels === "function" && Array.isArray(v.selectedModels) && Array.isArray(v.allModels) ? { sel: v.selectedModels, all: v.allModels, set: v.setSelectedModels }
+    : null;
+
   /** The context that holds the page's model selection, found by walking up from something inside it. */
   function provider() {
     const from = (el) => {
       let f = fiberOf(el), n = 0;
       while (f && n++ < 160) {
         const v = f.memoizedProps?.value;
-        if (v && typeof v === "object" && typeof v.setSelectedPageModels === "function" && Array.isArray(v.selectedPageModels) && Array.isArray(v.allPageModels)) return { value: v, fiber: f };
+        const store = storeOf(v);
+        if (store) return { value: v, fiber: f, ...store };
         f = f.return;
       }
       return null;
@@ -160,8 +170,7 @@
   }
 
   /* ---- the selection ---- */
-  function sync({ value: v, fiber }) {
-    const sel = v.selectedPageModels, all = v.allPageModels;
+  function sync({ fiber, sel, all, set }) {
     const selected = new Map(sel.map((r) => [r.id, srcOf(r)]));
     // A model's configurations: from the full list, preferring the selected copy of a row (it carries more fields).
     const byRel = new Map();
@@ -196,7 +205,7 @@
     if (desired.length !== sel.length || desired.some((d, i) => d !== sel[i])) {
       lastSet = desired;
       // A changed set of models goes through AA's own setter (it keeps the address bar in step); a repricing of the same set does not need to.
-      ((!moved && rawSetter(fiber, sel)) || v.setSelectedPageModels)(desired);
+      ((!moved && rawSetter(fiber, sel)) || set)(desired);
     } else lastSet = sel;
     return { byRel };
   }
@@ -204,13 +213,13 @@
   function report(prov, synced, head) {
     const post = (msg) => window.postMessage(msg, location.origin);
     const byRel = synced?.byRel;
-    if (byRel && prov.value.allPageModels !== sentRows) {
-      sentRows = prov.value.allPageModels;
+    if (byRel && prov.all !== sentRows) {
+      sentRows = prov.all;
       const rows = [];
       for (const [rel, list] of byRel) for (const r of list) rows.push({ id: String(r.id), slug: r.slug, name: r.shortName ?? r.name, rel: String(rel), eff: S.effortOf(r.suffix), ii: r.intelligenceIndex ?? null, time: typeof r.intelligenceIndexTimePerTask === "number" ? r.intelligenceIndexTimePerTask : null, cost: total(apiValue(r, "intelligenceIndexCostPerTask")), color: r.creator?.color, logo: r.creator?.logo, sel: !!r.chartDefaultSelected });
       post({ aaplus: "rows", path: location.pathname, rows });
     }
-    const sel = prov?.value.selectedPageModels ?? [];
+    const sel = prov?.sel ?? [];
     const available = byRel && base ? S.EFFORTS.filter((e) => [...base].some((rel) => (byRel.get(rel) ?? []).some((r) => r.intelligenceIndex != null && S.effortOf(r.suffix) === e))) : [];
     const state = { aaplus: "state", path: location.pathname, scope: !!prov, pending: !!synced?.pending, selection: { count: sel.length, repriced: sel.filter((r) => r[STAMP] != null && r[STAMP] !== 1).length, efforts: [...new Set(sel.map((r) => S.effortOf(r.suffix)))], top: sel.filter((r) => r.intelligenceIndex != null).sort((a, b) => b.intelligenceIndex - a.intelligenceIndex).slice(0, 80).map((r) => ({ slug: r.slug, rel: String(relOf(r)), name: r.shortName ?? r.name, ii: r.intelligenceIndex, color: r.creator?.color, logo: r.creator?.logo })) }, available, headline: head };
     const sig = JSON.stringify(state);
@@ -246,8 +255,8 @@
     for (let f = fiberOf(button), n = 0; f && n < 200; f = f.return, n++) {
       const v = f.memoizedProps?.value;
       if (!v || typeof v !== "object") continue;
-      if (typeof v.setSelectedPageModels === "function" && Array.isArray(v.selectedPageModels) && Array.isArray(v.allPageModels))
-        stores.push({ all: v.allPageModels, selected: v.selectedPageModels, set: v.setSelectedPageModels, key: (r) => r.slug, id: (r) => r.id });
+      const models = storeOf(v);
+      if (models) stores.push({ all: models.all, selected: models.sel, set: models.set, key: (r) => r.slug, id: (r) => r.id });
       else if (typeof v.setSelectedReleases === "function" && Array.isArray(v.selectedReleases) && Array.isArray(v.allReleases))
         stores.push({ all: v.allReleases, selected: v.selectedReleases, set: v.setSelectedReleases, key: (r) => r?.slug ?? r?.id, id: (r) => r?.slug ?? r?.id });
     }
