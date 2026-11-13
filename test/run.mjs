@@ -271,6 +271,40 @@ try {
     await shot("scatter-plan");
   });
 
+  await check("Pareto isolation is chart-local, reversible, and follows repricing", async () => {
+    const heading = page.locator("[data-aaplus-scope] h3", { hasText: "Intelligence Index vs. Cost per Task" }).first();
+    await heading.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(1500);
+    const box = heading.locator("xpath=following::span[normalize-space()='Pareto line'][1]/ancestor::div[.//*[contains(@class,'recharts-surface')]][1]");
+    const toggle = box.getByRole("checkbox", { name: "Isolate Pareto Line" });
+    const countBefore = await models();
+    assert.equal(await toggle.isChecked(), false, "starts off");
+    await toggle.check();
+    await page.waitForTimeout(500);
+    const details = await toggle.evaluate(e => {
+      let box = e; while (box && !box.querySelector(".recharts-surface")) box = box.parentElement;
+      const svg = box?.querySelector(".recharts-surface"), circles = [...(svg?.querySelectorAll("circle[data-chart-item-id]") ?? [])];
+      const paths = [...(svg?.querySelectorAll("path[stroke-dasharray]") ?? [])].filter(p => p.getAttribute("stroke-dasharray") === "0.1 6" && p.closest("g[clip-path]"));
+      const vertices = [...(paths[0]?.getAttribute("d") ?? "").matchAll(/([ML])\s*(-?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)\s*[, ]\s*(-?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)/gi)].map(m => [Number(m[2]), Number(m[3])]);
+      return { active: box?.hasAttribute("data-aap-pareto-active"), circles: circles.length, paths: paths.length, vertices: vertices.length, matches: circles.filter(c => vertices.some(([x,y]) => Math.abs(x - Number(c.getAttribute("cx"))) < 1e-6 && Math.abs(y - Number(c.getAttribute("cy"))) < 1e-6)).length, unmatchedLabels: [...(svg?.querySelectorAll('g[aria-hidden="true"][pointer-events="none"] > g') ?? [])].filter(g => { const key = Object.entries(g).find(([k]) => k.startsWith("__reactFiber$"))?.[1]?.key; return !circles.some(c => c.dataset.chartItemId === key); }).length };
+    });
+    assert.equal(await box.getAttribute("data-aap-pareto-active"), "", `isolation active: ${JSON.stringify(details)}`);
+    assert.ok(await box.locator(".recharts-scatter-symbol[data-aap-pareto-hidden]").count() > 0, "non-frontier points hidden");
+    assert.ok(await box.locator('g[aria-hidden="true"][pointer-events="none"] > g[data-aap-pareto-hidden]').count() > 0, "their labels hidden");
+    assert.equal(await models(), countBefore, "selection unchanged");
+    const others = page.getByRole("checkbox", { name: "Isolate Pareto Line" });
+    assert.ok(await others.count() > 1, "more than one chart has a control");
+    assert.equal(await others.nth(1).isChecked(), false, "another chart remains off");
+    await scopeBar.locator('[data-aaplus-pricing="api"]').click();
+    await page.waitForTimeout(1800);
+    assert.equal(await box.getAttribute("data-aap-pareto-active"), "", "still active after repricing");
+    assert.ok(await box.locator(".recharts-scatter-symbol[data-aap-pareto-hidden]").count() > 0, "mask updated");
+    await toggle.uncheck();
+    assert.equal(await box.locator("[data-aap-pareto-hidden]").count(), 0, "all marks restored");
+    assert.equal(await models(), countBefore, "selection still unchanged");
+    await scopeBar.locator('[data-aaplus-pricing="plan"]').click();
+  });
+
   await check("the strengths radar sits in the Benchmarks section and says what each evaluation measures", async () => {
     const radar = page.locator("[data-aaplus-radar]");
     // Below the sticky row, which would otherwise sit over the card's own controls.

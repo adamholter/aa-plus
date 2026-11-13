@@ -43,7 +43,8 @@
       ],
       "js": [
         "shared.page.js",
-        "page.js"
+        "page.js",
+        "pareto.js"
       ],
       "run_at": "document_start",
       "world": "MAIN"

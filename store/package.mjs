@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const manifest = JSON.parse(readFileSync(path.join(root, "manifest.json"), "utf8"));
-const FILES = ["background.js", "chart.js", "content.js", "page.js", "popup.html", "popup.js", "shared.js", "shared.page.js", "icons/16.png", "icons/32.png", "icons/48.png", "icons/128.png"];
+const FILES = ["background.js", "chart.js", "content.js", "page.js", "pareto.js", "popup.html", "popup.js", "shared.js", "shared.page.js", "icons/16.png", "icons/32.png", "icons/48.png", "icons/128.png"];
 if (readFileSync(path.join(root, "shared.js"), "utf8") !== readFileSync(path.join(root, "shared.page.js"), "utf8")) throw new Error("shared.page.js is not a copy of shared.js: cp shared.js shared.page.js");
 const stage = mkdtempSync(path.join(tmpdir(), "aaplus-store-"));
 for (const f of FILES) { mkdirSync(path.dirname(path.join(stage, f)), { recursive: true }); cpSync(path.join(root, f), path.join(stage, f)); }
