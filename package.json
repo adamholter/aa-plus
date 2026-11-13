@@ -4,6 +4,6 @@
   "description": "Priors controls on artificialanalysis.ai (unofficial Chrome extension)",
   "license": "MIT",
   "type": "module",
-  "scripts": { "test": "node test/run.mjs" },
+  "scripts": { "test": "node test/pareto.mjs && node test/run.mjs", "test:pareto": "node test/pareto.mjs" },
   "devDependencies": { "playwright": "^1.64.0" }
 }
