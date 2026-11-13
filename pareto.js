@@ -12,9 +12,12 @@
   style.textContent = `
     [data-aap-pareto-hidden]{display:none!important}
     .aap-pareto-toggle{display:inline-flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap}
-    .aap-pareto-toggle input{appearance:none;-webkit-appearance:none;width:14px;height:14px;margin:0;border:1px solid currentColor;border-radius:50%;background:transparent;cursor:pointer}
-    .aap-pareto-toggle input:checked{box-shadow:inset 0 0 0 3px white;background:currentColor}
+    .aap-pareto-toggle input{appearance:none;-webkit-appearance:none;position:relative;flex:none;width:30px;height:18px;margin:0;border:1px solid #9ca3af;border-radius:999px;background:#e5e7eb;cursor:pointer;transition:background .15s,border-color .15s}
+    .aap-pareto-toggle input::before{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:#fff;box-shadow:0 1px 2px #0003;transition:transform .15s}
+    .aap-pareto-toggle input:checked{border-color:#6d28d9;background:#6d28d9}
+    .aap-pareto-toggle input:checked::before{transform:translateX(12px)}
     .aap-pareto-toggle input:focus-visible{outline:2px solid currentColor;outline-offset:2px}
+    @media(prefers-reduced-motion:reduce){.aap-pareto-toggle input,.aap-pareto-toggle input::before{transition:none}}
   `;
   function clear(box) {
     box.removeAttribute('data-aap-pareto-active');
@@ -110,7 +113,7 @@
       let label = legend.querySelector('.aap-pareto-toggle');
       if (!label) {
         label = document.createElement('label'); label.className = 'aap-pareto-toggle'; label.setAttribute('data-aaplus-ui', '');
-        label.innerHTML = '<input type="checkbox"> <span>Isolate Pareto Line</span>';
+        label.innerHTML = '<input type="checkbox" role="switch"> <span>Isolate Pareto Line</span>';
         legend.append(label);
         label.querySelector('input').addEventListener('change', e => { const current = chartFor(legend); if (!current) return; chartStates.set(current, e.target.checked); sync(current, e.target.checked); });
       }

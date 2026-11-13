@@ -276,7 +276,7 @@ try {
     await heading.scrollIntoViewIfNeeded();
     await page.waitForTimeout(1500);
     const box = heading.locator("xpath=following::span[normalize-space()='Pareto line'][1]/ancestor::div[.//*[contains(@class,'recharts-surface')]][1]");
-    const toggle = box.getByRole("checkbox", { name: "Isolate Pareto Line" });
+    const toggle = box.getByRole("switch", { name: "Isolate Pareto Line" });
     const countBefore = await models();
     assert.equal(await toggle.isChecked(), false, "starts off");
     await toggle.check();
@@ -292,7 +292,7 @@ try {
     assert.ok(await box.locator(".recharts-scatter-symbol[data-aap-pareto-hidden]").count() > 0, "non-frontier points hidden");
     assert.ok(await box.locator('g[aria-hidden="true"][pointer-events="none"] > g[data-aap-pareto-hidden]').count() > 0, "their labels hidden");
     assert.equal(await models(), countBefore, "selection unchanged");
-    const others = page.getByRole("checkbox", { name: "Isolate Pareto Line" });
+    const others = page.getByRole("switch", { name: "Isolate Pareto Line" });
     assert.ok(await others.count() > 1, "more than one chart has a control");
     assert.equal(await others.nth(1).isChecked(), false, "another chart remains off");
     await scopeBar.locator('[data-aaplus-pricing="api"]').click();
