@@ -13,7 +13,7 @@ const arg = (name) => { const i = process.argv.indexOf(name); return i > 0 ? pro
 const ext = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."), base = arg("--base"), shots = arg("--shots");
 if (shots) mkdirSync(shots, { recursive: true });
 const failures = [];
-const check = async (name, fn) => { try { await fn(); console.log(`ok   ${name}`); } catch (e) { failures.push(name); console.error(`FAIL ${name}: ${e.message}`); } };
+const check = async (name, fn) => { try { await fn(); console.log(`ok   ${name}`); } catch (e) { failures.push(name); console.error(`FAIL ${name}: ${e.message.split("\n")[0]}${process.env.AAPLUS_STACK ? `\n${(e.stack ?? "").split("\n").filter((l) => l.includes("run.mjs")).slice(0, 2).join("\n")}` : ""}`); } };
 
 await check("the page-side copy of the shared code matches the original", async () => {
   // Chrome injects one file into one world only, so the page-side script loads a copy. `cp shared.js shared.page.js` after editing.
@@ -321,16 +321,69 @@ try {
     assert.ok(tip.split("\n").some((line) => line.length > 40), `the card describes the evaluation: ${tip.slice(0, 120)}`);
     assert.ok((await legend()).every((name) => tip.includes(name.split("\n")[0].trim().replace(/\s*\d+$/, ""))), "and gives each charted model's score");
     await page.mouse.move(5, 500);
-    await radar.locator('[data-aaplus-radar-top="6"]').click();
-    await page.waitForTimeout(900);
-    assert.equal(await shapes(), 6, "six on request");
+    // Under load the redraw can lag a fixed wait: poll until it settles.
+    const until = async (f, ok, ms = 8000) => { const end = Date.now() + ms; let v; while (Date.now() < end) { v = await f(); if (ok(v)) return v; await page.waitForTimeout(250); } return v; };
+    // A Models picker, as on Priors: the models selected on AA's page, top 4 drawn until some are picked.
+    const pick = radar.locator(".aap-pick"), summary = pick.locator("summary");
+    assert.match(await summary.innerText(), /^Models · 4 of \d+$/);
+    await summary.click();
+    const boxes = pick.locator("[data-aaplus-radar-pick]");
+    const total = await boxes.count();
+    assert.ok(total > 4, `the picker lists the selected models (${total})`);
+    const firstOn = pick.locator("[data-aaplus-radar-pick]:checked").first(), firstName = (await firstOn.locator("xpath=..").innerText()).split("\n")[0].trim();
+    await firstOn.uncheck();
+    assert.equal(await until(shapes, (n) => n === 3), 3, "unticking a model takes it off");
+    assert.ok(!(await legend()).some((l) => l.startsWith(firstName)), "and out of the legend");
+    const off = pick.locator("[data-aaplus-radar-pick]:not(:checked)").nth(3);
+    const offName = (await off.locator("xpath=..").innerText()).split("\n")[0].trim();
+    await off.check();
+    assert.equal(await until(shapes, (n) => n === 4), 4, "ticking another adds it");
+    assert.ok((await legend()).some((l) => l.startsWith(offName)), `${offName} is drawn`);
+    await pick.locator("[data-aaplus-radar-search]").fill(offName.slice(0, 6));
+    assert.ok(await pick.locator("label[data-name]:visible").count() < total, "the search narrows the list without redrawing");
+    await pick.locator("[data-aaplus-radar-search]").fill("");
+    await pick.locator("[data-aaplus-radar-none]").click();
+    await until(() => radar.locator(".aap-empty").isVisible(), Boolean);
+    assert.ok(await radar.locator(".aap-empty").isVisible(), "None leaves an empty radar that says how to pick");
+    await radar.locator("[data-aaplus-radar-reset]").click();
+    assert.equal(await until(shapes, (n) => n === 4), 4, "Top 4 goes back to following the top models");
+    await page.mouse.click(5, 500);
     const before = await legend();
     await scopeBar.locator('[data-aaplus-effort="high"]').click();
     await page.waitForTimeout(3000);
     assert.notDeepEqual(await legend(), before, "the radar follows the effort picked for AA's charts");
     await scopeBar.locator('[data-aaplus-effort="highest"]').click();
-    await radar.locator('[data-aaplus-radar-top="4"]').click();
     await page.waitForTimeout(2500);
+    // It follows AA's own selection: picks first, then a model deselected on the page leaves the radar and comes back with it.
+    await summary.click();
+    await pick.locator("[data-aaplus-radar-pick]:checked").first().uncheck();
+    await page.waitForTimeout(700);
+    await page.mouse.click(5, 500);
+    const drawn = (await legend())[0].split("\n")[0].trim();
+    const trig = page.locator("[data-aaplus-scope] button", { hasText: /^\d+ of \d+ models$/ }).first();
+    const toggleOnAA = async (name) => {
+      await trig.scrollIntoViewIfNeeded(); await page.evaluate(() => window.scrollBy(0, -260)); await trig.click();
+      const pop = page.locator('[role="dialog"]:has([cmdk-root])').last();
+      await pop.locator("[cmdk-input]").fill(name);
+      await page.waitForTimeout(500);
+      // AA names configurations its own way ("Claude Fable 5.2 (max)"): the search narrows to the model, take its first row.
+      const items = pop.locator('[cmdk-item]:not([data-value^="group:"])');
+      await items.first().click();
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(1500);
+      await radar.evaluate((el) => window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - 260));
+      await page.waitForTimeout(800);
+    };
+    await toggleOnAA(drawn);
+    await until(legend, (l) => !l.some((x) => x.startsWith(drawn)));
+    assert.ok(!(await legend()).some((l) => l.startsWith(drawn)), `deselecting ${drawn} on AA's page takes it off the radar`);
+    await toggleOnAA(drawn);
+    await until(legend, (l) => l.some((x) => x.startsWith(drawn)));
+    assert.ok((await legend()).some((l) => l.startsWith(drawn)), `selecting ${drawn} again brings it back`);
+    await radar.locator(".aap-pick summary").click();
+    await radar.locator("[data-aaplus-radar-reset]").click();
+    await page.mouse.click(5, 500);
+    await page.waitForTimeout(1200);
     if (shots) await radar.screenshot({ path: path.join(shots, "radar.png") });
   });
 

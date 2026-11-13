@@ -98,6 +98,16 @@ html[data-aaplus-theme="dark"] .aap-brand svg{filter:invert(1) hue-rotate(180deg
 .aap-seg button[aria-pressed="true"]{background:#fff;border-color:rgb(231,231,231)}
 .aap-seg i{width:1px;height:16px;background:rgba(128,128,128,.4);margin:0 2px}
 .aap-plans{position:relative}
+.aap-pick .aap-pop{width:300px}
+.aap-pick-head{display:flex;gap:6px;align-items:center;margin-bottom:6px}
+.aap-pick-head input{flex:1;min-width:0;height:28px;padding:0 8px;border:1px solid rgb(217,217,217);border-radius:4px;font:inherit;font-size:12.5px;background:#fff;color:#000}
+.aap-pick-head button{height:28px;padding:0 8px;border:1px solid rgb(231,231,231);border-radius:4px;background:#fff;font:500 12px/1 suisseIntl,ui-sans-serif,system-ui,sans-serif;cursor:pointer;color:#000}
+.aap-pick label{justify-content:flex-start}
+.aap-pick label[hidden]{display:none}
+.aap-pick label input{margin:0}
+.aap-pick label small{margin-left:auto;color:rgb(130,130,130)}
+.aap-pick .aap-note{margin:4px 0 2px;font-size:11.5px;color:rgb(130,130,130)}
+[data-aaplus-radar] .aap-empty{padding:40px 0;text-align:center;color:rgb(130,130,130);font-size:13px}
 .aap-plans>summary{display:inline-flex;align-items:center;gap:5px;list-style:none;border-color:rgb(231,231,231)}
 .aap-plans>summary::-webkit-details-marker{display:none}
 .aap-plans[data-idle]>summary{color:rgb(130,130,130)}
@@ -293,7 +303,9 @@ ${labs.length ? `<details class="aap-plans"${plansOpen ? " open" : ""}${plan() ?
 
   /* ---------------- strengths radar, in the Benchmarks section ---------------- */
 
-  let radar = null;
+  let radar = null, radarOpen = false, radarQuery = "", lastCand = null, lastPath = null;
+  /** Most shapes the radar overlays before it says so; picks past it still draw. */
+  const RADAR_READABLE = 6;
   const DASHES = [undefined, "7 4", "2 3"];
   const swatch = (color, dash) => `<svg width="22" height="10" aria-hidden="true"><line x1="1" y1="5" x2="21" y2="5" stroke="${esc(color)}" stroke-width="2.5" stroke-linecap="round"${dash ? ` stroke-dasharray="${esc(dash)}"` : ""}/></svg>`;
   function strengthsCard() {
@@ -309,22 +321,38 @@ ${labs.length ? `<details class="aap-plans"${plansOpen ? " open" : ""}${plan() ?
       const mid = scores.length >> 1;
       return { ...axis, min: scores[0], max: scores.at(-1), median: scores.length % 2 ? scores[mid] : (scores[mid - 1] + scores[mid]) / 2 };
     });
-    // One shape per model: its best-scoring charted configuration that the index's evaluations cover.
-    const seen = new Set(), tint = new Map(), series = [];
+    // The models it can draw: those selected on AA's page that the index's evaluations cover, one per model (its best
+    // configuration), by Intelligence Index. As on Priors, it shows the top ones until models are picked; then the picks stick.
+    const cand = [], seen = new Set();
     for (const row of settings.radar && header && top && axes.length >= 3 && state.path === location.pathname ? top : []) {
       const scores = strengths.models[row.slug];
-      if (seen.has(row.rel) || !scores || scores.filter((v) => v != null).length < 3 || series.length >= settings.radarTop) continue;
-      seen.add(row.rel);
+      if (seen.has(row.rel) || !scores || scores.filter((v) => v != null).length < 3) continue;
+      seen.add(row.rel); cand.push(row);
+    }
+    // It follows AA's selection: a model selected on the page joins the picks, one deselected leaves the radar (and comes back with it).
+    const cur = new Set(cand.map((r) => r.rel));
+    let picks = settings.radarPicks;
+    const prevCand = lastPath === location.pathname ? lastCand : null;
+    if (cand.length) { lastCand = cur; lastPath = location.pathname; }
+    if (picks && prevCand && cand.length) {
+      const added = [...cur].filter((r) => !prevCand.has(r) && !picks.includes(r));
+      // Saved after this draw: saving redraws, and this one already uses them.
+      if (added.length) { picks = [...picks, ...added].slice(0, 24); const next = picks; setTimeout(() => change({ radarPicks: next }), 0); }
+    }
+    const shown = picks ? cand.filter((r) => picks.includes(r.rel)) : cand.slice(0, settings.radarTop);
+    const tint = new Map(), series = [];
+    for (const row of shown) {
+      const scores = strengths.models[row.slug];
       const color = row.color || "#888", used = tint.get(color) ?? 0;
       tint.set(color, used + 1);
       series.push({ key: row.rel, name: row.name, color, dash: DASHES[used % DASHES.length], ii: row.ii, scores, points: scores.map((v, i) => S.spoke(axes[i], v)) });
     }
-    if (!series.length) { old?.remove(); radar = null; return; }
+    if (!cand.length) { old?.remove(); radar = null; return; }
     let card = old;
     if (!card || !radar) {
       old?.remove();
       card = document.createElement("div"); card.dataset.aaplusCard = ""; card.dataset.aaplusRadar = ""; card.setAttribute("data-aaplus-ui", "");
-      card.innerHTML = '<div class="ap-head"><div class="ap-sq"></div><h3>Strengths by Evaluation</h3><span class="aap-group"><span class="aap-lbl">Models</span><span class="aap-seg" role="group" aria-label="Models on the radar"></span></span></div><div class="ap-sub"></div><ul class="aap-legend"></ul><div data-aaplus-plot></div><div class="ap-foot"></div>';
+      card.innerHTML = '<div class="ap-head"><div class="ap-sq"></div><h3>Strengths by Evaluation</h3><span class="aap-group aap-pick-host"></span></div><div class="ap-sub"></div><ul class="aap-legend"></ul><p class="aap-empty" hidden>No models picked. Pick some under Models.</p><div data-aaplus-plot></div><div class="ap-foot"></div>';
       card.style.margin = "0 0 32px";
       radar = new C.Radar(card.querySelector("[data-aaplus-plot]"), { size: 380, tip: (i) => radar.tipHTML?.(i) ?? "" });
       radar.key = "";
@@ -333,13 +361,27 @@ ${labs.length ? `<details class="aap-plans"${plansOpen ? " open" : ""}${plan() ?
     }
     if (header.nextElementSibling !== card) header.after(card);
     const set = (sel, html) => { const node = card.querySelector(sel); if (node.dataset.key !== html) { node.dataset.key = html; node.innerHTML = html; } };
-    set(".aap-seg", S.RADAR_SIZES.map((n) => `<button type="button" data-aaplus-radar-top="${n}" aria-pressed="${settings.radarTop === n}">${n}</button>`).join(""));
+    const on = new Set(shown.map((r) => r.rel));
+    set(".aap-pick-host", `<details class="aap-plans aap-pick"${radarOpen ? " open" : ""}><summary title="Which models the radar draws">Models · ${shown.length} of ${cand.length}</summary><div class="aap-pop"><div class="aap-pick-head"><input type="search" placeholder="Search models" aria-label="Search models" data-aaplus-radar-search><button type="button" data-aaplus-radar-reset title="The top ${settings.radarTop} by Intelligence Index">Top ${settings.radarTop}</button><button type="button" data-aaplus-radar-none>None</button></div><p class="aap-note">The models selected on this page. Select more there and they join the radar.</p>${shown.length > RADAR_READABLE ? `<p class="aap-note">More than ${RADAR_READABLE} overlaid shapes get hard to read.</p>` : ""}${cand.map((r) => `<label data-name="${esc(r.name.toLowerCase())}"><input type="checkbox" data-aaplus-radar-pick="${esc(r.rel)}"${on.has(r.rel) ? " checked" : ""}>${esc(r.name)}<small>${esc(r.ii.toFixed(0))}</small></label>`).join("")}</div></details>`);
+    const search = card.querySelector("[data-aaplus-radar-search]");
+    if (search && search.value !== radarQuery) search.value = radarQuery;
+    filterPicks(card);
+    card.querySelector(".aap-empty").hidden = series.length > 0;
+    card.querySelector("[data-aaplus-plot]").hidden = series.length === 0;
+    card.querySelector(".aap-legend").hidden = series.length === 0;
+    if (!series.length) return;
     set(".ap-sub", `The top charted models on each evaluation in the ${esc(strengths.index || "Intelligence Index")} · A spoke runs from the lowest score among the charted models to the highest · Hover an evaluation for what it measures`);
     set(".aap-legend", series.map((s) => `<li data-key="${esc(s.key)}">${swatch(s.color, s.dash)}${esc(s.name)}<small>${esc(s.ii.toFixed(0))}</small></li>`).join("") + '<li><svg width="18" height="10" aria-hidden="true"><rect x="1" y="1" width="16" height="8" rx="2" fill="currentColor" fill-opacity=".08" stroke="currentColor" stroke-opacity=".5" stroke-dasharray="2 2"/></svg><small>Median of charted models</small></li>');
     set(".ap-foot", `Added by AA Plus, not Artificial Analysis. Scores and descriptions from <a href="https://mypriors.com" target="_blank" rel="noreferrer">Priors</a>, ${esc(strengths.date)}, as Artificial Analysis published them.`);
     radar.tipHTML = (i) => { const a = axes[i]; return `<strong>${esc(a.name)}</strong><span class="sub">${esc(a.share.toFixed(0))}% of the index</span><p>${esc(S.blurb(a.name, a.description))}</p>${series.map((s) => `<span class="row"><i style="background:${esc(s.color)}"></i><span>${esc(s.name)}</span><b>${esc(S.score(a, s.scores[i]))}</b></span>`).join("")}`; };
     const key = JSON.stringify([axes.map((a) => a.id), series.map((s) => [s.key, s.name, s.color, s.dash, s.points])]);
     if (radar.key !== key) { radar.key = key; radar.update({ axes: axes.map((a) => ({ key: a.id, name: a.label })), series, ghost: axes.map((a) => S.spoke(a, a.median)) }); }
+  }
+
+  /** The picker's search narrows its list in place, so typing never redraws the card. */
+  function filterPicks(root = document) {
+    const q = radarQuery.trim().toLowerCase();
+    for (const l of root.querySelectorAll(".aap-pick label[data-name]")) l.hidden = !!q && !l.dataset.name.includes(q);
   }
 
   /* ---------------- drawing, and staying on the page ---------------- */
@@ -406,10 +448,10 @@ ${labs.length ? `<details class="aap-plans"${plansOpen ? " open" : ""}${plan() ?
   }
 
   document.addEventListener("click", (e) => {
-    const t = e.target instanceof Element ? e.target.closest("button:is([data-aaplus-pricing], [data-aaplus-effort], [data-aaplus-theme], [data-aaplus-radar-top])") : null;
+    const t = e.target instanceof Element ? e.target.closest("button:is([data-aaplus-pricing], [data-aaplus-effort], [data-aaplus-theme], [data-aaplus-radar-top], [data-aaplus-radar-reset], [data-aaplus-radar-none])") : null;
     if (!t) {
-      // A click elsewhere closes an open plan list.
-      if (plansOpen && !(e.target instanceof Element && e.target.closest(".aap-plans"))) { plansOpen = false; for (const d of document.querySelectorAll(".aap-plans[open]")) d.open = false; }
+      // A click elsewhere closes an open plan list or model picker.
+      if ((plansOpen || radarOpen) && !(e.target instanceof Element && e.target.closest(".aap-plans"))) { plansOpen = false; radarOpen = false; for (const d of document.querySelectorAll(".aap-plans[open]")) d.open = false; }
       return;
     }
     e.preventDefault(); e.stopPropagation();
@@ -418,10 +460,28 @@ ${labs.length ? `<details class="aap-plans"${plansOpen ? " open" : ""}${plan() ?
     if (t.dataset.aaplusPricing) { if (t.dataset.aaplusPricing !== settings.pricing) change({ pricing: t.dataset.aaplusPricing }); }
     else if (t.dataset.aaplusTheme) change({ theme: t.dataset.aaplusTheme });
     else if (t.dataset.aaplusRadarTop) change({ radarTop: Number(t.dataset.aaplusRadarTop) });
+    else if (t.hasAttribute("data-aaplus-radar-reset")) change({ radarPicks: null });
+    else if (t.hasAttribute("data-aaplus-radar-none")) change({ radarPicks: [] });
     else change({ efforts: S.toggleEffort(settings.efforts, t.dataset.aaplusEffort) });
   }, true);
-  document.addEventListener("toggle", (e) => { if (e.target instanceof Element && e.target.classList.contains("aap-plans")) plansOpen = e.target.open; }, true);
+  document.addEventListener("toggle", (e) => {
+    if (!(e.target instanceof Element) || !e.target.classList.contains("aap-plans")) return;
+    if (e.target.classList.contains("aap-pick")) radarOpen = e.target.open; else plansOpen = e.target.open;
+  }, true);
+  document.addEventListener("input", (e) => {
+    if (!(e.target instanceof Element) || !e.target.hasAttribute("data-aaplus-radar-search")) return;
+    radarQuery = e.target.value; filterPicks();
+  }, true);
   document.addEventListener("change", (e) => {
+    const pick = e.target instanceof Element ? e.target.getAttribute("data-aaplus-radar-pick") : null;
+    if (pick && alive) {
+      // The first pick starts from what is drawn now (the top models), so ticking one adds it rather than replacing them.
+      const boxes = [...document.querySelectorAll("[data-aaplus-radar-pick]")], listed = new Set(boxes.map((i) => i.getAttribute("data-aaplus-radar-pick")));
+      // Picks for models not selected on the page right now are kept, so selecting one again brings it back.
+      const kept = (settings.radarPicks ?? []).filter((r) => !listed.has(r));
+      change({ radarPicks: [...kept, ...boxes.filter((i) => i.checked).map((i) => i.getAttribute("data-aaplus-radar-pick"))] });
+      return;
+    }
     const lab = e.target instanceof Element ? e.target.getAttribute("data-aaplus-lab") : null;
     if (!lab || !alive) return;
     starClicked();

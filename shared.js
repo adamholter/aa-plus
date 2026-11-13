@@ -7,7 +7,7 @@ var __aaPlusShared = (() => {
   const RANK = { none: 0, minimal: 1, low: 2, medium: 3, default: 3.5, high: 4, xhigh: 5, max: 6 };
   const EFFORT_LABEL = { none: "None", minimal: "Minimal", low: "Low", medium: "Medium", high: "High", xhigh: "XHigh", max: "Max" };
   const THEMES = ["auto", "light", "dark"], RADAR_SIZES = [3, 4, 6];
-  const DEFAULTS = { pricing: "plan", plans: {}, efforts: { mode: "highest", list: [] }, chart: true, radar: true, radarTop: 4, theme: "auto" };
+  const DEFAULTS = { pricing: "plan", plans: {}, efforts: { mode: "highest", list: [] }, chart: true, radar: true, radarTop: 4, radarPicks: null, theme: "auto" };
 
   /** AA names a model's configuration in its `suffix`: "Max, Default Fallback", "Non-reasoning", "Reasoning", none at all. */
   function effortOf(suffix) {
@@ -57,6 +57,8 @@ var __aaPlusShared = (() => {
     ...DEFAULTS, ...stored, plans: { ...stored?.plans },
     efforts: { ...DEFAULTS.efforts, ...stored?.efforts, list: [...(stored?.efforts?.list ?? [])].filter((e) => EFFORTS.includes(e)) },
     theme: THEMES.includes(stored?.theme) ? stored.theme : DEFAULTS.theme, radarTop: RADAR_SIZES.includes(stored?.radarTop) ? stored.radarTop : DEFAULTS.radarTop,
+    // The models picked for the radar (AA model release ids). null: the top models of AA's selection.
+    radarPicks: Array.isArray(stored?.radarPicks) ? stored.radarPicks.map(String).slice(0, 24) : null,
   });
 
   /**
