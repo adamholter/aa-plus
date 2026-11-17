@@ -89,6 +89,10 @@ html[data-aaplus-theme="dark"] .aap-brand svg{filter:invert(1) hue-rotate(180deg
 [data-aaplus-bar][data-at="head"][data-flow="narrow"]{margin:0 0 -16px}
 [data-aaplus-bar][data-tight] .aap-lbl{display:none}
 [data-aaplus-bar][data-at="scope"][data-away]{visibility:hidden}
+[data-aaplus-bar][data-at="scope"][data-side]{position:static;flex-direction:column;flex-wrap:nowrap;align-items:flex-start;gap:12px;margin:20px 0 0;padding:12px;background:transparent}
+[data-aaplus-bar][data-side] .aap-group{flex-direction:column;align-items:flex-start;gap:6px}
+[data-aaplus-bar][data-side] .aap-seg{flex-wrap:wrap}
+[data-aaplus-bar][data-side] .aap-seg i{display:none}
 .aap-group{display:inline-flex;align-items:center;gap:8px}
 .aap-brand{display:inline-flex;align-items:center;gap:6px;font-weight:500;white-space:nowrap}
 .aap-brand svg{width:18px;height:18px;border-radius:4px;display:block}
@@ -189,7 +193,7 @@ ${labs.length ? `<details class="aap-plans"${plansOpen ? " open" : ""}${plan() ?
     let bar = document.querySelector(`[data-aaplus-bar][data-at="${at}"]`);
     if (!where) { bar?.remove(); return; }
     if (!bar) { bar = document.createElement("div"); bar.dataset.aaplusBar = ""; bar.dataset.at = at; bar.setAttribute("data-aaplus-ui", ""); }
-    if (how === "after" ? where.nextElementSibling !== bar : where.previousElementSibling !== bar) where[how](bar);
+    if (how === "append" ? where.lastElementChild !== bar : how === "after" ? where.nextElementSibling !== bar : where.previousElementSibling !== bar) where[how](bar);
     const html = barHTML();
     // Rebuilt only when something it shows changed: a rebuild would close the plan list under the pointer.
     if (bar.dataset.key !== html) { bar.dataset.key = html; bar.innerHTML = html; }
@@ -396,7 +400,12 @@ ${labs.length ? `<details class="aap-plans"${plansOpen ? " open" : ""}${plan() ?
         if (!document.getElementById("aaplus-style")) { const s = document.createElement("style"); s.id = "aaplus-style"; s.textContent = STYLE; document.head.append(s); }
         const ours = headlineCards();
         const scope = state?.scope && state.path === location.pathname ? document.querySelector("[data-aaplus-scope]") : null;
-        placeBar("scope", scope, "before");
+        // Beside the charts, AA's section list has empty room under it: on screens wide enough to show that column, the row stands there
+        // as a column of its own and scrolls with the list. Narrower screens keep it as a row above the charts.
+        const side = scope && sideColumn(scope);
+        if (side) placeBar("scope", side, "append"); else placeBar("scope", scope, "before");
+        document.querySelector('[data-aaplus-bar][data-at="scope"]')?.toggleAttribute("data-side", !!side);
+        stickyRow();
         chartSwitches(ours);
         addedChart();
         strengthsCard();
@@ -491,10 +500,23 @@ ${labs.length ? `<details class="aap-plans"${plansOpen ? " open" : ""}${plan() ?
     change(e.target.value && !plan() ? { plans, pricing: "plan" } : { plans });
   }, true);
 
-  /** The sticky row belongs to AA's charts: once they have scrolled away, so has it. */
+  /** AA's sticky section list beside the charts (its left column), when the page shows it; the column's own end keeps it with the charts. */
+  function sideColumn(scope) {
+    const aside = [scope, ...scope.querySelectorAll("aside")].find((el) => el.tagName === "ASIDE") ?? scope.querySelector("aside");
+    const list = aside?.firstElementChild;
+    if (!list || getComputedStyle(aside).display === "none" || aside.clientWidth < 160 || getComputedStyle(list).position !== "sticky") return null;
+    // A sticky column taller than the window would hide its last controls: then the row stays above the charts. The row's own height is
+    // over-estimated while it is elsewhere, so a window at the edge does not flip it back and forth.
+    const bar = document.querySelector('[data-aaplus-bar][data-at="scope"]');
+    const need = list.offsetHeight + (bar && list.contains(bar) ? 0 : 380) + (parseFloat(getComputedStyle(list).top) || 0) + 16;
+    return need <= innerHeight ? list : null;
+  }
+
+  /** The sticky row belongs to AA's charts: once they have scrolled away, so has it. In the side column it ends with the column. */
   function stickyRow() {
     const bar = document.querySelector('[data-aaplus-bar][data-at="scope"]');
     if (!bar) return;
+    if (bar.hasAttribute("data-side")) { bar.removeAttribute("data-away"); return; }
     // On the home page AA's store also wraps the image, video and speech sections that follow; the row stops where they start.
     const media = [...document.querySelectorAll("[data-aaplus-scope] h2")].find((h) => /^More from/.test(textOf(h)));
     let bottom = -Infinity;

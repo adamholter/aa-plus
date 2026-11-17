@@ -165,6 +165,26 @@ try {
     assert.deepEqual(await head.locator('[aria-pressed="true"]').allInnerTexts(), ["Subscription", "Highest"], "every copy of the control agrees");
   });
 
+  await check("on a wide window the controls stand in AA's section column beside the charts, and return above them when it is narrow or short", async () => {
+    const where = () => scopeBar.evaluate((bar) => {
+      const b = bar.getBoundingClientRect(), list = bar.closest("aside")?.firstElementChild;
+      const chart = document.querySelector("[data-aaplus-scope] .recharts-responsive-container")?.getBoundingClientRect();
+      return { side: bar.hasAttribute("data-side"), inAside: !!bar.closest("aside"), sticky: list ? getComputedStyle(list).position : null, right: b.right, chartLeft: chart?.left ?? null, w: b.width };
+    });
+    const wide = await where();
+    assert.ok(wide.side && wide.inAside && wide.sticky === "sticky", `in the sticky section column: ${JSON.stringify(wide)}`);
+    assert.ok(wide.chartLeft == null || wide.right <= wide.chartLeft, "left of the charts, not over them");
+    for (const size of [{ width: 900, height: 1000 }, { width: 1440, height: 640 }]) {
+      await page.setViewportSize(size);
+      await page.waitForTimeout(800);
+      const w = await where();
+      assert.ok(!w.side && !w.inAside, `${size.width}x${size.height}: a row above the charts (${JSON.stringify(w)})`);
+    }
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.waitForTimeout(800);
+    assert.ok((await where()).side, "back in the column");
+  });
+
   await check("the row above AA's charts picks efforts for them, and Highest puts the selection back", async () => {
     await scopeBar.scrollIntoViewIfNeeded();
     const before = await models();
