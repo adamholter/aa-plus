@@ -1,11 +1,12 @@
 // Fetches AA Plus's data from Priors. A content script on artificialanalysis.ai cannot reach another
 // origin under that page's rules, so the requests are made here and the answers cached for a while.
-// Nothing about models, plans or benchmarks is written into the extension: it all comes from these two
+// Nothing about models, plans or benchmarks is written into the extension: it all comes from these
 // endpoints, which Priors answers from its live snapshot (rebuilt by its scrape job every 15 minutes).
 const DEFAULT_BASE = "https://mypriors.com", MAX_AGE_MS = 30 * 60 * 1000;
 const SOURCES = {
   prices: { path: "/api/plan-prices", key: "cache", ok: (d) => Array.isArray(d?.models) },
   strengths: { path: "/api/aa-strengths", key: "strengths", ok: (d) => Array.isArray(d?.axes) && d.models && typeof d.models === "object" },
+  metrics: { path: "/api/aa-task-metrics", key: "metrics", ok: (d) => Array.isArray(d?.sources) },
 };
 
 async function load(kind, force) {
@@ -27,6 +28,8 @@ async function load(kind, force) {
 }
 
 chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
+  // The report form is its own page, opened beside the tab it is about.
+  if (msg?.type === "open-report") { chrome.tabs.create({ url: chrome.runtime.getURL("report.html") }); return false; }
   if (!msg || !(msg.type in SOURCES)) return false;
   load(msg.type, !!msg.force).then(reply);
   return true;

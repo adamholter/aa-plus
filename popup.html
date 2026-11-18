@@ -26,6 +26,11 @@
   select { max-width: 180px; height: 28px; padding: 0 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: inherit; font: 12px inherit; }
   .check { display: flex; align-items: center; gap: 8px; font-size: 12.5px; cursor: pointer; }
   .check + .check { margin-top: 6px; }
+  .adv > summary { margin-top: 2px; }
+  .adv .row select { max-width: 170px; }
+  .labs { max-height: 130px; overflow: auto; margin-top: 6px; }
+  .labs .check { margin-top: 4px; }
+  .link { padding: 0; border: 0; background: none; color: inherit; font: inherit; text-decoration: underline; cursor: pointer; }
   footer { display: flex; justify-content: space-between; gap: 8px; margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--mute); }
   footer a { color: inherit; }
 </style>
@@ -49,6 +54,16 @@
   <div class="label">Added charts</div>
   <label class="check"><input type="checkbox" id="chart"> Plan price vs. API price</label>
   <label class="check"><input type="checkbox" id="radar"> Strengths radar, in Benchmarks</label>
+  <details class="adv" id="advanced"><summary id="advanced-title">Advanced</summary>
+    <div id="sources"></div>
+    <label class="row">Released<select id="released"><option value="all">All time</option><option value="3">Last 3 months</option><option value="6">Last 6 months</option><option value="12">Last 12 months</option><option value="24">Last 24 months</option></select></label>
+    <label class="row">Weights<select id="weights"><option value="all">Open and closed</option><option value="open">Open weights</option><option value="closed">Closed weights</option></select></label>
+    <label class="check" style="margin-top:8px"><input type="checkbox" id="planOnly"> Only models with plan prices</label>
+    <label class="check" style="margin-top:6px"><input type="checkbox" id="freeTiers"> Count free tiers as $0</label>
+    <div id="readings"></div>
+    <div class="labs" id="lab-filter"></div>
+    <p class="help"><button type="button" class="link" id="reset">Reset these</button></p>
+  </details>
   <div class="label">Appearance</div>
   <div class="seg" id="theme" role="group" aria-label="Appearance">
     <button type="button" data-theme="auto">Auto</button>
@@ -56,7 +71,7 @@
     <button type="button" data-theme="dark">Dark</button>
   </div>
   <p class="help">Artificial Analysis has no dark mode of its own. Auto follows your system.</p>
-  <footer><span id="data"></span><a href="https://artificialanalysis.ai" target="_blank" rel="noreferrer">Open Artificial Analysis</a></footer>
+  <footer><span id="data"></span><a href="report.html" target="_blank">Report a problem</a></footer>
   <script src="shared.js"></script>
   <script src="popup.js"></script>
 </body>

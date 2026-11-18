@@ -13,6 +13,9 @@ Unofficial. Not made by or affiliated with Artificial Analysis; their name, look
 - **Nothing reloads.** AA's own charts redraw with AA's animation; the three headline cards are redrawn by AA Plus and tween between states.
 - **An added chart**, "Plan Price vs. API Price", under the headline cards.
 - **A strengths radar**, "Strengths by Evaluation", in AA's Benchmarks section: the models selected on the page, across the evaluations inside the Intelligence Index. As on Priors, it draws the top 4 until you pick models under **Models** (search, Top 4, None); picks stick. It follows AA's own selection: a model you select on the page joins the radar, one you deselect leaves it. Hovering an evaluation says what it measures and gives each model's score. It follows the effort pick too.
+- **Plan picker that says what it did.** Plans are grouped by whether they price a model on the page. After a pick, the panel names the models that plan does not reach, and it lists the models with no plan data, which stay at API price.
+- **Advanced**, closed until you open it, on the page and in the popup. Cost and time can come from Priors' other sources (T3 Code real use, Terminal-Bench, DeepSWE, FrontierSWE). Filters cover release date, lab, open or closed weights and models with plan prices. Free tiers can count as $0, and a plan rate with more than one reading can be switched.
+- **Report a bug or request a feature** from the flag button, the Advanced panel or the popup. Reports go to the Priors inbox, and the form shows the technical details before they are sent.
 - **Dark mode**, which AA does not have: the moon button in the control row, or Auto / Light / Dark in the popup (Auto follows the system). The page is inverted with its hues turned back, so chart colours stay recognisable; photos and videos are turned back to normal.
 - **Select all follows the search** in AA's model picker: with something typed ("openai"), Select all adds just the models the search lists, so Clear then Select all gives one lab's models. With the search empty it selects everything, as AA's does.
 - **One GitHub star ask**, shown once ever: on a second visit to AA (after half an hour or more away) by someone who has clicked an AA Plus control.
@@ -46,6 +49,7 @@ Nothing about models, plans or benchmarks is written into the extension (the tes
 
 - **Plan prices**: `GET https://mypriors.com/api/plan-prices`, answered from Priors' live snapshot (its scrape job rebuilds it every 15 minutes; the answer carries `generatedAt`).
 - **The index's evaluations, their descriptions and every model's score on them**: `GET https://mypriors.com/api/aa-strengths`, same snapshot. The evaluation list follows AA's index version.
+- **Other sources' cost and time** (Advanced): `GET https://mypriors.com/api/aa-task-metrics`.
 - **Everything else** (which models are charted, their costs, times, efforts, colours, logos) is read from the AA page being viewed.
 
 ## Test
@@ -75,13 +79,16 @@ node demo/film.mjs <work> <work>/film.mp4       # cuts on the track's beats, log
 - It depends on AA's internals (the names in its React context, the shape of its rows). The code never throws into the page; when a shape changes, AA's own cards and switch come back untouched and the test fails.
 - Only charts are covered. A sentence, table or model detail page on AA that quotes a cost still shows the API price.
 - "API default" is known only for the models AA marks (the headline set); others stay at their highest effort.
-- A free tier is not treated as a price: a model free today uses its paid plan, or stays at API price.
+- By default a free tier is not treated as a price: a model free today uses its paid plan, or stays at API price. Advanced can count free tiers as $0.
+- With another cost source, a bar keeps AA's split between token kinds, scaled to that source's total. Those sources measure a turn, trial or task run, not an Intelligence Index task; the chart title says which.
 - Dark mode is an inversion, not a redesign: AA's dark promo cards turn light, and colours shift a little.
 - Under AA's fixed header nothing is clickable, the control row included, until you scroll it clear.
 
 ## Privacy
 
-AA Plus collects no data. Its settings stay in your browser (`chrome.storage.local`). It fetches public data from `https://mypriors.com/api/plan-prices` and `/api/aa-strengths` and sends nothing about you or your browsing; it has no analytics.
+AA Plus has no analytics and collects nothing by itself. Its settings stay in your browser (`chrome.storage.local`). It fetches public data from `https://mypriors.com/api/plan-prices`, `/api/aa-strengths` and `/api/aa-task-metrics`.
+
+If you send a bug report or feature request, what you write goes to Priors, with any contact and screenshots you add. Unless you untick it, the report also includes the technical details the form shows you: the extension version, browser, the Artificial Analysis page path, your AA Plus settings and how many charted models have plan prices.
 
 ## Chrome Web Store
 

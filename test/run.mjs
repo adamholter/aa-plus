@@ -120,7 +120,7 @@ try {
     // The row once wrapped onto a second line under Subscription pricing, and the line it pushed up sat under AA's sticky tabs.
     const covered = () => page.evaluate(() => {
       const bar = document.querySelector('[data-aaplus-bar][data-at="head"]'), tabs = [...document.querySelectorAll(".sticky")].find((e) => e.querySelector('[aria-current]'));
-      const bad = [...bar.querySelectorAll("button, summary")].filter((b) => { const r = b.getBoundingClientRect(), hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); return !hit || !b.contains(hit); }).map((b) => b.textContent.trim() || b.getAttribute("aria-label"));
+      const bad = [...bar.querySelectorAll("button, summary")].filter((b) => b.checkVisibility()).filter((b) => { const r = b.getBoundingClientRect(), hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); return !hit || !b.contains(hit); }).map((b) => b.textContent.trim() || b.getAttribute("aria-label"));
       return { bad, under: tabs ? bar.getBoundingClientRect().top < tabs.getBoundingClientRect().bottom - 1 : null, flow: bar.getAttribute("data-flow"), tight: bar.hasAttribute("data-tight") };
     });
     const seen = [];
@@ -131,7 +131,7 @@ try {
         await page.waitForTimeout(700);
         const got = await covered();
         seen.push(`${pricing}@${width}:${got.flow ?? (got.tight ? "tight" : "full")}`);
-        assert.deepEqual(got.bad, [], `${pricing} pricing at ${width}px: covered controls`);
+        assert.deepEqual(got.bad, [], `${pricing} pricing at ${width}px: covered controls: ${got.bad.join(", ")}`);
         assert.equal(got.under, false, `${pricing} pricing at ${width}px: the row reaches under AA's tabs`);
       }
     }
@@ -210,7 +210,7 @@ try {
     const shares = () => chart.locator('svg text[text-anchor="middle"]').allTextContents();
     const sharesBefore = await shares();
     assert.ok(sharesBefore.length >= 4 && sharesBefore.every((t) => /^\d+(\.\d)?%$/.test(t)), `every bar carries its share: ${sharesBefore.join(" ")}`);
-    await head.locator(".aap-plans summary").click();
+    await head.locator('details[data-pop="plans"] summary').click();
     const select = head.locator('select[data-aaplus-lab="anthropic"]');
     assert.ok((await select.locator("option").count()) >= 3, "Anthropic's plans are listed");
     await select.selectOption({ index: 1 });

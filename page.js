@@ -16,13 +16,16 @@
   const S = __aaPlusShared;
   const SRC = Symbol("aaplus.source"), STAMP = Symbol("aaplus.share");
   let cfg = null, defaults = new Set(), lastSet = null, base = null, doneRev = null, pathSeen = null, anchor = null;
-  let sentRows = null, sentState = "";
+  let sentRows = null, sentState = "", noMatch = false, labsOfAll = null, labList = [];
+  const viewOf = (row) => ({ slug: row.slug, lab: row.creator?.slug, date: row.releaseDate, open: row.isOpenWeights });
 
   const fiberOf = (el) => { for (const k in el) if (k.startsWith("__reactFiber$")) return el[k]; return null; };
   const srcOf = (row) => row[SRC] ?? row;
   // A model's configurations share a release. The home page gives it an id and a slug, the models page only a slug.
   const relOf = (row) => row.release?.slug ?? row.release?.id ?? row.id;
+  const COST = "intelligenceIndexCostPerTask", TIME = "intelligenceIndexTimePerTask";
   const isCost = (key) => /cost/i.test(key) && !/^price|token/i.test(key);
+  const repriced = (key) => isCost(key) || key === TIME;
   const scale = (v, r) => typeof v === "number" ? (Number.isFinite(v) ? v * r : v)
     : Array.isArray(v) ? v.map((x) => scale(x, r))
     : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, scale(x, r)])) : v;
@@ -48,6 +51,23 @@
    * rewritten from that, never from its current value, so switching back and forth cannot drift. */
   const API = new WeakMap(), FACTOR = new WeakMap();
   const apiValue = (row, key) => { const kept = API.get(row); return kept && key in kept ? kept[key] : row[key]; };
+  const factorOf = (row) => (cfg.pricing === "plan" ? S.share(cfg.prices, cfg, row.slug) : null) ?? 1;
+  /** What a row is drawn with now, as a value that compares equal only when nothing about it changed. */
+  const NEUTRAL = "1||";
+  const signOf = (row) => `${factorOf(row)}|${cfg.cost ? cfg.cost[row.slug] ?? "none" : ""}|${cfg.time ? cfg.time[row.slug] ?? "none" : ""}`;
+  /** A cost from another source, in the shape AA's stacked charts read: AA's own split between token kinds where it has one. */
+  function costAt(base, usd) {
+    const was = total(base);
+    if (typeof base === "number") return usd;
+    return was > 0 ? scale(base, usd / was) : { total: usd, input: 0, nonCacheInput: 0, cacheRead: 0, cacheWrite: 0, output: usd, reasoning: 0, answer: usd };
+  }
+  /** One field of a row under the current settings. A model the chosen source did not measure has no value, so it leaves that chart. */
+  function valueOf(row, key, factor) {
+    const base = apiValue(row, key);
+    if (key === TIME) return cfg.time ? cfg.time[row.slug] ?? null : base;
+    if (key === COST && cfg.cost) { const usd = cfg.cost[row.slug]; return usd == null ? null : costAt(base, usd * factor); }
+    return factor === 1 ? base : scale(base, factor);
+  }
   /**
    * Some charts read rows the selection does not hold: the scatter's Pareto line and its faded off-selection
    * points come from the full model list, and the by-release chart from the releases store. Neither has a
@@ -59,11 +79,12 @@
     let changed = false;
     const visit = (row) => {
       if (!row || typeof row !== "object" || typeof row.slug !== "string") return;
-      const factor = (cfg.pricing === "plan" ? S.share(cfg.prices, cfg.plans, row.slug) : null) ?? 1;
-      if ((FACTOR.get(row) ?? 1) === factor) return;
-      if (!API.has(row)) API.set(row, Object.fromEntries(Object.keys(row).filter((key) => isCost(key) && row[key] != null).map((key) => [key, row[key]])));
-      for (const [key, value] of Object.entries(API.get(row))) row[key] = factor === 1 ? value : scale(value, factor);
-      FACTOR.set(row, factor);
+      const sign = signOf(row);
+      if ((FACTOR.get(row) ?? NEUTRAL) === sign) return;
+      if (!API.has(row)) API.set(row, Object.fromEntries(Object.keys(row).filter(repriced).map((key) => [key, row[key]])));
+      const factor = factorOf(row);
+      for (const key of Object.keys(API.get(row))) row[key] = valueOf(row, key, factor);
+      FACTOR.set(row, sign);
       changed = true;
     };
     for (const row of prov.all) visit(row);
@@ -177,29 +198,35 @@
     const add = (row) => { const k = relOf(row), list = byRel.get(k) ?? byRel.set(k, []).get(k); if (!list.some((x) => x.id === row.id)) list.push(row); };
     for (const r of selected.values()) add(r);
     for (const r of all) add(selected.get(r.id) ?? r);
-    const pickFor = (rel) => S.choose((byRel.get(rel) ?? []).map((row) => ({ id: row.id, eff: S.effortOf(row.suffix), ii: row.intelligenceIndex ?? null, row })), cfg.efforts, defaults).map((c) => c.row);
+    // A filtered-out model has nothing to pick, so it stays in `base` below and comes back when the filter is lifted.
+    const pickFor = (rel) => S.choose((byRel.get(rel) ?? []).filter((row) => S.passes(viewOf(row), cfg, cfg.prices)).map((row) => ({ id: row.id, eff: S.effortOf(row.suffix), ii: row.intelligenceIndex ?? null, row })), cfg.efforts, defaults).map((c) => c.row);
 
     // The models on the charts are AA's (or the visitor's) choice; an effort choice only changes which of their configurations show.
     if (sel !== lastSet) { const present = new Set(sel.map(relOf)); base = new Set([...present, ...(base ? [...base].filter((rel) => !pickFor(rel).length) : [])]); }
 
     let target = null, moved = false;
     if (cfg.rev !== doneRev) {
-      if (doneRev === null && cfg.efforts.mode === "highest") doneRev = cfg.rev;      // AA opens on each model's highest effort already
+      if (doneRev === null && cfg.efforts.mode === "highest" && !S.filtering(cfg)) doneRev = cfg.rev;      // AA opens on each model's highest effort already
       else if (all.length <= sel.length) return { byRel, pending: true };            // the full list has not arrived yet
-      else { target = [...base].flatMap(pickFor).sort((a, b) => (b.intelligenceIndex ?? -1) - (a.intelligenceIndex ?? -1)); doneRev = cfg.rev; moved = true; }
+      else {
+        const next = [...base].flatMap(pickFor).sort((a, b) => (b.intelligenceIndex ?? -1) - (a.intelligenceIndex ?? -1));
+        doneRev = cfg.rev; noMatch = !next.length;
+        // Filters that leave nothing would empty every chart: the page stays as it is and the panel says so.
+        if (next.length) { target = next; moved = true; }
+      }
     }
     target ??= sel.map(srcOf);
 
     const current = new Map(sel.map((r) => [srcOf(r), r]));
     const desired = target.map((src) => {
-      const r = (cfg.pricing === "plan" ? S.share(cfg.prices, cfg.plans, src.slug) : null) ?? 1, cur = current.get(src);
-      // AA's own row serves as it is at API price, unless it is one that gets repriced in place: then only a copy is safe to show.
-      if (cur && (cur === src ? r === 1 && !API.has(src) : cur[STAMP] === r)) return cur;
-      if (r === 1 && !API.has(src)) return src;
+      const sign = signOf(src), r = factorOf(src), cur = current.get(src);
+      // AA's own row serves as it is when nothing changes it, unless it is one that gets repriced in place: then only a copy is safe to show.
+      if (cur && (cur === src ? sign === NEUTRAL && !API.has(src) : cur[STAMP] === sign)) return cur;
+      if (sign === NEUTRAL && !API.has(src)) return src;
       const copy = { ...src };
-      for (const key of Object.keys(src)) if (isCost(key) && src[key] != null) copy[key] = r === 1 ? apiValue(src, key) : scale(apiValue(src, key), r);
+      for (const key of new Set([...Object.keys(src).filter(repriced), ...(cfg.cost ? [COST] : []), ...(cfg.time ? [TIME] : [])])) copy[key] = valueOf(src, key, r);
       Object.defineProperty(copy, SRC, { value: src });
-      Object.defineProperty(copy, STAMP, { value: r });
+      Object.defineProperty(copy, STAMP, { value: sign });
       return copy;
     });
     if (desired.length !== sel.length || desired.some((d, i) => d !== sel[i])) {
@@ -216,19 +243,25 @@
     if (byRel && prov.all !== sentRows) {
       sentRows = prov.all;
       const rows = [];
-      for (const [rel, list] of byRel) for (const r of list) rows.push({ id: String(r.id), slug: r.slug, name: r.shortName ?? r.name, rel: String(rel), eff: S.effortOf(r.suffix), ii: r.intelligenceIndex ?? null, time: typeof r.intelligenceIndexTimePerTask === "number" ? r.intelligenceIndexTimePerTask : null, cost: total(apiValue(r, "intelligenceIndexCostPerTask")), color: r.creator?.color, logo: r.creator?.logo, sel: !!r.chartDefaultSelected });
+      for (const [rel, list] of byRel) for (const r of list) rows.push({ id: String(r.id), slug: r.slug, name: r.shortName ?? r.name, rel: String(rel), ...viewOf(r), eff: S.effortOf(r.suffix), ii: r.intelligenceIndex ?? null, time: typeof apiValue(r, TIME) === "number" ? apiValue(r, TIME) : null, cost: total(apiValue(r, COST)), color: r.creator?.color, logo: r.creator?.logo, sel: !!r.chartDefaultSelected });
       post({ aaplus: "rows", path: location.pathname, rows });
     }
     const sel = prov?.sel ?? [];
+    if (prov && prov.all !== labsOfAll) {
+      labsOfAll = prov.all;
+      const seen = new Map();
+      for (const r of prov.all) if (r.creator?.slug && r.intelligenceIndex != null) { const had = seen.get(r.creator.slug); seen.set(r.creator.slug, { id: r.creator.slug, name: r.creator.name ?? r.creator.slug, best: Math.max(had?.best ?? -1, r.intelligenceIndex) }); }
+      labList = [...seen.values()].sort((a, b) => b.best - a.best).map(({ id, name }) => ({ id, name }));
+    }
     const available = byRel && base ? S.EFFORTS.filter((e) => [...base].some((rel) => (byRel.get(rel) ?? []).some((r) => r.intelligenceIndex != null && S.effortOf(r.suffix) === e))) : [];
-    const state = { aaplus: "state", path: location.pathname, scope: !!prov, pending: !!synced?.pending, selection: { count: sel.length, repriced: sel.filter((r) => r[STAMP] != null && r[STAMP] !== 1).length, efforts: [...new Set(sel.map((r) => S.effortOf(r.suffix)))], top: sel.filter((r) => r.intelligenceIndex != null).sort((a, b) => b.intelligenceIndex - a.intelligenceIndex).slice(0, 80).map((r) => ({ slug: r.slug, rel: String(relOf(r)), name: r.shortName ?? r.name, ii: r.intelligenceIndex, color: r.creator?.color, logo: r.creator?.logo })) }, available, headline: head };
+    const state = { aaplus: "state", path: location.pathname, scope: !!prov, pending: !!synced?.pending, selection: { count: sel.length, repriced: sel.filter((r) => r[STAMP] != null && r[STAMP] !== NEUTRAL).length, efforts: [...new Set(sel.map((r) => S.effortOf(r.suffix)))], top: sel.filter((r) => r.intelligenceIndex != null).sort((a, b) => b.intelligenceIndex - a.intelligenceIndex).slice(0, 80).map((r) => ({ slug: r.slug, rel: String(relOf(r)), name: r.shortName ?? r.name, ii: r.intelligenceIndex, color: r.creator?.color, logo: r.creator?.logo })) }, available, headline: head, labs: labList, noMatch };
     const sig = JSON.stringify(state);
     if (sig !== sentState) { sentState = sig; post(state); }
   }
 
   function tick() {
     try {
-      if (location.pathname !== pathSeen) { pathSeen = location.pathname; lastSet = null; base = null; doneRev = null; sentRows = null; sentState = ""; }
+      if (location.pathname !== pathSeen) { pathSeen = location.pathname; lastSet = null; base = null; doneRev = null; sentRows = null; sentState = ""; noMatch = false; }
       const prov = provider(), head = headline();
       if (head) defaults = new Set(head.defaultIds);
       if (prov) markScope(prov.fiber);
@@ -275,7 +308,7 @@
 
   window.addEventListener("message", (e) => {
     if (e.source !== window || !e.data || typeof e.data !== "object") return;
-    if (e.data.aaplus === "config") { cfg = { pricing: e.data.pricing, prices: e.data.prices, plans: e.data.plans ?? {}, efforts: e.data.efforts ?? { mode: "highest", list: [] }, rev: e.data.rev }; tick(); }
+    if (e.data.aaplus === "config") { cfg = { ...S.settingsOf(e.data.settings), prices: e.data.prices, cost: e.data.cost ?? null, time: e.data.time ?? null, rev: e.data.rev }; tick(); }
     else if (e.data.aaplus === "ask") { sentRows = null; sentState = ""; tick(); }
   });
   setInterval(tick, 350);

@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AA Plus: report a problem</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { color-scheme: light dark; --ink: #000; --bg: #fff; --soft: #f1f2f4; --line: #d9d9d9; --mute: #737373; --bad: #b42318; }
+  @media (prefers-color-scheme: dark) { :root { --ink: #fff; --bg: #0a0a0a; --soft: #262626; --line: #404040; --mute: #a3a3a3; --bad: #ff8a7a; } }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { width: min(560px, 100%); margin: 0 auto; padding: 32px 20px 48px; }
+  header { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
+  header img { width: 30px; height: 30px; border-radius: 7px; }
+  h1 { margin: 0; font: 500 24px/1.15 Georgia, Cambria, serif; }
+  form { display: grid; gap: 16px; }
+  label, legend { display: block; margin-bottom: 5px; font-size: 13px; font-weight: 500; padding: 0; }
+  fieldset { margin: 0; padding: 0; border: 0; }
+  .seg { display: flex; gap: 4px; padding: 2px; border-radius: 4px; background: var(--soft); }
+  .seg button { flex: 1; height: 32px; border: 1px solid transparent; border-radius: 4px; background: none; color: inherit; font: 500 13px/1 inherit; cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: var(--bg); border-color: var(--line); }
+  textarea, input[type="text"] { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: inherit; font: inherit; }
+  textarea { min-height: 150px; resize: vertical; }
+  .hint { margin: 5px 0 0; font-size: 12px; color: var(--mute); }
+  .check { display: flex; align-items: center; gap: 8px; margin: 0; font-weight: 400; }
+  details { margin-top: 5px; font-size: 12px; color: var(--mute); }
+  pre { margin: 6px 0 0; padding: 8px; border-radius: 4px; background: var(--soft); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11.5px; }
+  #shots { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+  #shots span { display: flex; align-items: center; gap: 6px; padding: 3px 6px; border: 1px solid var(--line); border-radius: 4px; font-size: 12px; }
+  #shots button { padding: 0 3px; border: 0; background: none; color: inherit; cursor: pointer; font-size: 15px; line-height: 1; }
+  .send { height: 36px; padding: 0 16px; border: 0; border-radius: 4px; background: var(--ink); color: var(--bg); font: 500 13px/1 inherit; cursor: pointer; justify-self: start; }
+  .send:disabled { opacity: .5; cursor: default; }
+  .trap { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+  #error { margin: 0; color: var(--bad); font-size: 13px; }
+  #done h2 { margin: 0 0 6px; font: 500 22px/1.2 Georgia, Cambria, serif; }
+  #done p { margin: 0 0 14px; color: var(--mute); }
+</style>
+</head>
+<body>
+<main>
+  <header><img src="icons/48.png" alt=""><h1>Report a problem or ask for something</h1></header>
+  <form id="form" novalidate>
+    <fieldset><legend>What is this</legend><div class="seg" id="kind" role="group" aria-label="Kind of report">
+      <button type="button" data-kind="bug" aria-pressed="true">Bug</button><button type="button" data-kind="feature" aria-pressed="false">Feature request</button><button type="button" data-kind="other" aria-pressed="false">Something else</button>
+    </div></fieldset>
+    <div><label for="text" id="text-label">What went wrong, and on which chart</label><textarea id="text" maxlength="5000" required></textarea></div>
+    <div><label for="contact">How to reach you (optional)</label><input type="text" id="contact" maxlength="120" autocomplete="off" placeholder="Email or X handle"><p class="hint">Only if you want a reply.</p></div>
+    <div><label for="files">Screenshots (optional)</label><input type="file" id="files" accept="image/*" multiple><div id="shots"></div><p class="hint">Up to 3. You can also paste one here. They are resized before sending.</p></div>
+    <div><label class="check"><input type="checkbox" id="include" checked> Include technical details</label><details><summary>What is included</summary><pre id="context"></pre></details></div>
+    <div class="trap" aria-hidden="true"><label for="website">Leave empty</label><input type="text" id="website" tabindex="-1" autocomplete="off"></div>
+    <p id="error" role="alert" hidden></p>
+    <button type="submit" class="send" id="send">Send</button>
+  </form>
+  <section id="done" hidden role="status"><h2>Sent</h2><p id="done-text">Thanks. It went to the person who builds AA Plus.</p><button type="button" class="send" id="again">Send another</button></section>
+</main>
+<script src="shared.js"></script>
+<script src="report.js"></script>
+</body>
+</html>

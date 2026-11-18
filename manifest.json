@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "AA Plus",
-  "version": "0.4.2",
-  "description": "Unofficial: subscription pricing, effort picks, a strengths radar and dark mode on Artificial Analysis, with data from Priors.",
+  "version": "0.5.0",
+  "description": "Unofficial: subscription pricing, effort picks, data sources, filters, a strengths radar and dark mode on Artificial Analysis, with data from Priors.",
   "icons": {
     "16": "icons/16.png",
     "32": "icons/32.png",
@@ -29,6 +29,9 @@
       "data_collection_permissions": {
         "required": [
           "none"
+        ],
+        "optional": [
+          "technicalAndInteraction"
         ]
       }
     },
