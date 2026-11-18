@@ -4,7 +4,9 @@
 (() => {
   const S = __aaPlusShared, $ = (id) => document.getElementById(id), DEFAULT_BASE = "https://mypriors.com", MAX_SHOTS = 3, MAX_SIDE = 1800;
   const COPY = { bug: "What went wrong, and on which chart", feature: "What should AA Plus do", other: "What do you want to say" };
-  let kind = "bug", shots = [], base = DEFAULT_BASE, client = "", pageUrl = "";
+  let kind = "bug", shots = [], base = DEFAULT_BASE, pageUrl = "";
+  // Only for the server's wait between two reports from one sender. It lasts as long as this form is open and is never stored, so reports cannot be linked over time.
+  const client = crypto.randomUUID().replaceAll("-", "");
 
   function browserName() {
     const brand = navigator.userAgentData?.brands?.find((b) => !/not.a.brand|chromium/i.test(b.brand));
@@ -66,10 +68,9 @@
     finally { $("send").disabled = false; $("send").textContent = "Send"; }
   });
 
-  chrome.storage.local.get(["settings", "diag", "base", "reportClient"], (got) => {
+  chrome.storage.local.remove("reportClient"); // Left by the first build of this form.
+  chrome.storage.local.get(["settings", "diag", "base"], (got) => {
     base = got.base ?? DEFAULT_BASE;
-    client = got.reportClient ?? crypto.randomUUID().replaceAll("-", "");
-    if (!got.reportClient) chrome.storage.local.set({ reportClient: client });
     pageUrl = got.diag?.path ? `https://artificialanalysis.ai${got.diag.path}` : "";
     $("context").textContent = contextOf(got.settings, got.diag);
     $("text").focus();

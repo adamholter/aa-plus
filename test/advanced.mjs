@@ -154,6 +154,7 @@ try {
     await form.getByRole("button", { name: "Send" }).click();
     assert.equal((await answer).status(), 200);
     await form.locator("#done").waitFor({ timeout: 10000 });
+    assert.equal((await stored(["reportClient"])).reportClient, undefined, "no lasting id is kept for reports");
     assert.equal(await form.locator("#form").isVisible(), false, "the form gives way to the confirmation");
     if (shots) await form.screenshot({ path: path.join(shots, "report-sent.png") });
     await form.close();
