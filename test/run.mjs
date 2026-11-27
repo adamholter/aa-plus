@@ -213,9 +213,14 @@ try {
     await head.locator('details[data-pop="plans"] summary').click();
     const select = head.locator('select[data-aaplus-lab="anthropic"]');
     assert.ok((await select.locator("option").count()) >= 3, "Anthropic's plans are listed");
-    await select.selectOption({ index: 1 });
-    await page.waitForTimeout(1200);
-    assert.notDeepEqual(dollars(await card("Cost per Task")), dollars(before), "the cost card changed");
+    // Not every plan a lab lists sells the models on the card (Priors lists resellers too): the first one that does.
+    let changed = false;
+    for (let i = 1, n = await select.locator("option").count(); i < n && !changed; i++) {
+      await select.selectOption({ index: i });
+      await page.waitForTimeout(1200);
+      changed = JSON.stringify(dollars(await card("Cost per Task"))) !== JSON.stringify(dollars(before));
+    }
+    assert.ok(changed, "the cost card changed for one of the lab's plans");
     assert.notDeepEqual(await shares(), sharesBefore, "the added chart changed");
     assert.ok(await select.isVisible(), "the plan list stays open while the page redraws");
     await select.selectOption({ index: 0 });
@@ -262,22 +267,23 @@ try {
       const h = page.locator("[data-aaplus-scope] h3", { hasText: "Intelligence Index vs. Cost per Task" }).first();
       await h.scrollIntoViewIfNeeded();
       await page.waitForTimeout(2500);
+      // Read from what the chart draws: the dotted Pareto path and the points (AA's React internals change between builds).
       return page.evaluate(() => {
-        const fiberOf = (el) => { for (const k in el) if (k.startsWith("__reactFiber$")) return el[k]; };
         const h3 = [...document.querySelectorAll("[data-aaplus-scope] h3")].find((e) => e.textContent.trim().startsWith("Intelligence Index vs. Cost per Task") && !/Release/.test(e.textContent));
         let box = h3.parentElement;
         while (!box.querySelector(".recharts-surface")) box = box.parentElement;
-        let line = null, items = null;
-        for (let f = fiberOf(box.querySelector(".recharts-wrapper")), n = 0; f && n < 60; f = f.return, n++) for (let hook = f.memoizedState, i = 0; hook && typeof hook === "object" && "memoizedState" in hook && i < 45; hook = hook.next, i++) {
-          const v = Array.isArray(hook.memoizedState) ? hook.memoizedState[0] : null;
-          if (!Array.isArray(v) || !v[0] || typeof v[0] !== "object") continue;
-          if (Object.keys(v[0]).join() === "x,y") line = v;
-          else if ("x" in v[0] && "y" in v[0] && "id" in v[0] && (!items || v.length > items.length)) items = v;
-        }
-        return { line: line?.map((q) => [q.x, q.y]), items: items?.map((q) => [q.x, q.y]) };
+        const svg = box.querySelector(".recharts-surface");
+        const path = [...svg.querySelectorAll("path[stroke-dasharray]")].find((p) => /^0\.1[ ,]+6$/.test(p.getAttribute("stroke-dasharray")) && p.closest("g[clip-path]"));
+        const line = path ? [...(path.getAttribute("d") ?? "").matchAll(/[ML]\s*(-?[\d.]+(?:e[+-]?\d+)?)[ ,]\s*(-?[\d.]+(?:e[+-]?\d+)?)/gi)].map((m) => [Number(m[1]), Number(m[2])]) : null;
+        const items = [...svg.querySelectorAll("circle[data-chart-item-id]")].map((c) => [Number(c.getAttribute("cx")), Number(c.getAttribute("cy"))]);
+        // AA no longer widens the axis to the whole frontier: vertices outside the plot area have no point drawn, with or without AA Plus.
+        const clip = svg.querySelector("clipPath rect"), [cx, cy, cw, ch] = ["x", "y", "width", "height"].map((k) => Number(clip?.getAttribute(k)));
+        const inside = ([x, y]) => !clip || (x >= cx - 0.5 && x <= cx + cw + 0.5 && y >= cy - 0.5 && y <= cy + ch + 0.5);
+        const ticks = [...svg.querySelectorAll("text")].map((t) => t.textContent.trim()).filter((t) => /^\$[\d.,]+$/.test(t));
+        return { line: line?.filter(inside), items, ticks };
       });
     };
-    const onPoints = ({ line, items }) => line.filter(([x, y]) => !items.some(([ix, iy]) => Math.abs(ix - x) <= 1e-9 * Math.max(1, x) && Math.abs(iy - y) < 1e-9));
+    const onPoints = ({ line, items }) => line.filter(([x, y]) => !items.some(([ix, iy]) => Math.abs(ix - x) < 0.5 && Math.abs(iy - y) < 0.5));
     await scopeBar.locator('[data-aaplus-pricing="plan"]').click();
     const plan = await frontier();
     assert.ok(plan.line?.length >= 5 && plan.items?.length >= 10, "the chart's line and points were read");
@@ -285,7 +291,8 @@ try {
     await scopeBar.locator('[data-aaplus-pricing="api"]').click();
     const api = await frontier();
     assert.deepEqual(onPoints(api), [], "vertices of the line that are not on a drawn point, at API prices");
-    assert.ok(Math.max(...api.line.map(([x]) => x)) > Math.max(...plan.line.map(([x]) => x)) * 2, "the line itself moved");
+    assert.ok(plan.ticks.length >= 3, "the cost axis was read");
+    assert.notDeepEqual(api.ticks, plan.ticks, "the cost axis moved with the prices");
     await scopeBar.locator('[data-aaplus-pricing="plan"]').click();
     await page.waitForTimeout(1500);
     await shot("scatter-plan");
