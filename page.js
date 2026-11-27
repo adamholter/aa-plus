@@ -3,10 +3,11 @@
 // transit, so the page boots exactly as it does without the extension.
 //
 // AA keeps the models a page charts in one React context: the selected rows, the full list, and a
-// setter. Handing that setter new rows is all it takes for every chart under it to redraw, with AA's
-// own animation. So:
-//  - Subscription pricing = the same selection, as copies whose cost fields are scaled by the plan's share.
-//  - An effort choice     = a different selection: other configurations of the same models.
+// setter. So:
+//  - Subscription pricing = AA's own rows with their cost fields scaled by the plan's share (see `inPlace`),
+//    after which the store is made to rebuild what it derives from them (see `refresh`), so every chart
+//    under it redraws with AA's own animation.
+//  - An effort choice     = a different selection through the setter: other configurations of the same models.
 // The headline cards above are not under that store (the server sends them finished), so the UI half
 // redraws those itself from the rows this file reports.
 /* global __aaPlusShared */
@@ -90,9 +91,67 @@
     for (const row of prov.all) visit(row);
     if (releases) for (const rel of releases.value.allReleases) for (const row of rel.models ?? []) visit(row);
     if (!changed) return;
+    refresh(prov);
     if (releases) { const sel = releases.value.selectedReleases; (rawSetter(releases.fiber, sel) ?? releases.value.setSelectedReleases)([...sel]); }
     const filters = prov.value.selectedFilters, setFilters = filters && typeof filters === "object" ? rawSetter(prov.fiber, filters) : null;
     if (setFilters) setFilters({ ...filters });
+  }
+
+  /**
+   * AA's code is compiled with React's memoizing compiler: a chart's items are rebuilt only when the list they come
+   * from is a new array, so rows changed where they are are not redrawn by themselves. The full list is SWR data,
+   * so it is handed back to SWR as fresh copies of the same rows (each keeps what AA published, see `API`), with a
+   * counter so SWR never takes it for the data it already holds. Every list AA derives from it is then rebuilt.
+   */
+  let refreshes = 0;
+  function swrOf(fiber) {
+    const ok = (c) => c && typeof c === "object" && typeof c.mutate === "function" && typeof c.cache?.get === "function" && typeof c.cache?.keys === "function";
+    for (let f = fiber, n = 0; f && n < 400; f = f.return, n++) {
+      if (ok(f.memoizedProps?.value)) return f.memoizedProps.value;
+      for (let h = f.memoizedState, i = 0; h && typeof h === "object" && "next" in h && i < 60; h = h.next, i++) {
+        const st = h.memoizedState, c = Array.isArray(st) ? st[0] : st;
+        if (ok(c)) return c;
+      }
+    }
+    return null;
+  }
+  function refresh(prov) {
+    const swr = swrOf(prov.fiber);
+    if (!swr) return;
+    const first = prov.all[0]?.id;
+    for (const key of swr.cache.keys()) {
+      const data = swr.cache.get(key)?.data;
+      if (!data || typeof data !== "object") continue;
+      const field = Object.keys(data).find((k) => data[k] === prov.all);
+      if (field) {
+        const rows = prov.all.map((row) => {
+          const copy = { ...row };
+          if (API.has(row)) API.set(copy, API.get(row));
+          if (FACTOR.has(row)) FACTOR.set(copy, FACTOR.get(row));
+          return copy;
+        });
+        swr.mutate(key, { ...data, [field]: rows, __aaplus: ++refreshes }, { revalidate: false });
+        return;
+      }
+      // An evaluation's page builds its rows from this data (their costs are worked out on the way), so new data would
+      // only bring back AA's prices. Instead every list in the store's memo cache that holds a repriced row is swapped
+      // for a copy, which makes everything that depends on it recompute from the repriced rows, and SWR is handed the
+      // same data under a new counter so the store renders again.
+      if (first != null && Object.values(data).some((v) => Array.isArray(v) && v.some((r) => r?.id === first))) {
+        bust(prov.fiber.return);
+        swr.mutate(key, { ...data, __aaplus: ++refreshes }, { revalidate: false });
+        return;
+      }
+    }
+  }
+  function bust(owner) {
+    for (const f of [owner, owner?.alternate]) {
+      const caches = f?.updateQueue?.memoCache?.data;
+      if (Array.isArray(caches)) for (const cache of caches) if (Array.isArray(cache)) for (let i = 0; i < cache.length; i++) {
+        const v = cache[i];
+        if (Array.isArray(v) && v.some((r) => r && typeof r === "object" && FACTOR.has(r))) cache[i] = [...v];
+      }
+    }
   }
 
   /**
@@ -141,7 +200,7 @@
   const LAZY = Symbol.for("react.lazy");
   /** Bar lists written out in a piece of page data that React has not parsed. */
   function fromText(text, out) {
-    const start = /"data":(?=\[\{"id":"[0-9a-f-]{36}","label":)/g;
+    const start = /"data":(?=\[\{"id":"[0-9a-f-]{36}",)/g;     // the fields after the id vary; the parse below checks it is a bar list
     for (let m; (m = start.exec(text));) {
       let depth = 0, quoted = false, end = -1;
       for (let i = m.index + m[0].length; i < text.length; i++) {
@@ -221,8 +280,10 @@
     const desired = target.map((src) => {
       const sign = signOf(src), r = factorOf(src), cur = current.get(src);
       // AA's own row serves as it is when nothing changes it, unless it is one that gets repriced in place: then only a copy is safe to show.
-      if (cur && (cur === src ? sign === NEUTRAL && !API.has(src) : cur[STAMP] === sign)) return cur;
-      if (sign === NEUTRAL && !API.has(src)) return src;
+      // A row repriced in place (see `inPlace`) already shows the current settings: AA keeps its own rows in the selection now.
+      const fresh = API.has(src) ? FACTOR.get(src) === sign : sign === NEUTRAL;
+      if (cur && (cur === src ? fresh : cur[STAMP] === sign)) return cur;
+      if (fresh) return src;
       const copy = { ...src };
       for (const key of new Set([...Object.keys(src).filter(repriced), ...(cfg.cost ? [COST] : []), ...(cfg.time ? [TIME] : [])])) copy[key] = valueOf(src, key, r);
       Object.defineProperty(copy, SRC, { value: src });
@@ -254,7 +315,7 @@
       labList = [...seen.values()].sort((a, b) => b.best - a.best).map(({ id, name }) => ({ id, name }));
     }
     const available = byRel && base ? S.EFFORTS.filter((e) => [...base].some((rel) => (byRel.get(rel) ?? []).some((r) => r.intelligenceIndex != null && S.effortOf(r.suffix) === e))) : [];
-    const state = { aaplus: "state", path: location.pathname, scope: !!prov, pending: !!synced?.pending, selection: { count: sel.length, repriced: sel.filter((r) => r[STAMP] != null && r[STAMP] !== NEUTRAL).length, efforts: [...new Set(sel.map((r) => S.effortOf(r.suffix)))], top: sel.filter((r) => r.intelligenceIndex != null).sort((a, b) => b.intelligenceIndex - a.intelligenceIndex).slice(0, 80).map((r) => ({ slug: r.slug, rel: String(relOf(r)), name: r.shortName ?? r.name, ii: r.intelligenceIndex, color: r.creator?.color, logo: r.creator?.logo })) }, available, headline: head, labs: labList, noMatch };
+    const state = { aaplus: "state", path: location.pathname, scope: !!prov, pending: !!synced?.pending, selection: { count: sel.length, repriced: sel.filter((r) => (r[STAMP] ?? FACTOR.get(r) ?? NEUTRAL) !== NEUTRAL).length, efforts: [...new Set(sel.map((r) => S.effortOf(r.suffix)))], top: sel.filter((r) => r.intelligenceIndex != null).sort((a, b) => b.intelligenceIndex - a.intelligenceIndex).slice(0, 80).map((r) => ({ slug: r.slug, rel: String(relOf(r)), name: r.shortName ?? r.name, ii: r.intelligenceIndex, color: r.creator?.color, logo: r.creator?.logo })) }, available, headline: head, labs: labList, noMatch };
     const sig = JSON.stringify(state);
     if (sig !== sentState) { sentState = sig; post(state); }
   }
