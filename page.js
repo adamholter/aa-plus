@@ -50,7 +50,7 @@
   /* Rows AA Plus reprices where they are (see `inPlace`). API holds what AA published for each; a row is always
    * rewritten from that, never from its current value, so switching back and forth cannot drift. */
   const API = new WeakMap(), FACTOR = new WeakMap();
-  const apiValue = (row, key) => { const kept = API.get(row); return kept && key in kept ? kept[key] : row[key]; };
+  const apiValue = (row, key) => { const kept = API.get(row); return kept ? kept[key] : row[key]; };
   const factorOf = (row) => (cfg.pricing === "plan" ? S.share(cfg.prices, cfg, row.slug) : null) ?? 1;
   /** What a row is drawn with now, as a value that compares equal only when nothing about it changed. */
   const NEUTRAL = "1||";
@@ -67,6 +67,56 @@
     if (key === TIME) return cfg.time ? cfg.time[row.slug] ?? null : base;
     if (key === COST && cfg.cost) { const usd = cfg.cost[row.slug]; return usd == null ? null : costAt(base, usd * factor); }
     return factor === 1 ? base : scale(base, factor);
+  }
+
+  // AA's newer stores select by URL keys and derive their chart rows from an SWR snapshot. Passing
+  // new rows to the selection setter only serializes the same keys, so the charts never see a change.
+  const modelCaches = new WeakMap();
+  function modelCache({ fiber, sel, all }) {
+    if (modelCaches.has(all)) return modelCaches.get(all);
+    if (rawSetter(fiber, sel)) return null;
+    for (let hook = fiber.return?.memoizedState; hook; hook = hook.next) {
+      const config = Array.isArray(hook.memoizedState) && hook.memoizedState[0];
+      if (!(config?.cache instanceof Map) || typeof config.mutate !== "function") continue;
+      for (const [key, entry] of config.cache) {
+        if (entry?.data?.models !== all) continue;
+        const binding = { config, key };
+        modelCaches.set(all, binding);
+        return binding;
+      }
+    }
+    return null;
+  }
+
+  function repriceSnapshot(binding) {
+    const { config, key } = binding;
+    const snapshot = config.cache.get(key)?.data;
+    if (!Array.isArray(snapshot?.models)) return;
+    let changed = false;
+    const models = snapshot.models.map((row) => {
+      if (!row || typeof row.slug !== "string") return row;
+      const sign = signOf(row);
+      if ((FACTOR.get(row) ?? NEUTRAL) === sign) return row;
+      const original = API.get(row) ?? Object.fromEntries(Object.keys(row).filter(repriced).map((k) => [k, row[k]]));
+      const keys = new Set([...Object.keys(original), ...(COST in row || cfg.cost ? [COST] : []), ...(TIME in row || cfg.time ? [TIME] : [])]);
+      if (!keys.size) return row;
+      const factor = factorOf(row), copy = { ...row };
+      for (const k of keys) {
+        const supplied = k === COST ? cfg.cost : k === TIME && cfg.time;
+        if (!(k in original) && !supplied) delete copy[k];
+        else copy[k] = valueOf(row, k, factor);
+      }
+      API.set(copy, original);
+      FACTOR.set(copy, sign);
+      Object.defineProperty(copy, STAMP, { value: sign });
+      changed = true;
+      return copy;
+    });
+    if (!changed) return;
+    modelCaches.set(models, binding);
+    // Only update the page's cache. A new snapshot also refreshes the derived release lists.
+    void config.mutate(key, (current) => current === snapshot ? { ...snapshot, models } : current, { revalidate: false })
+      .catch((e) => console.warn("AA Plus:", e));
   }
   /**
    * Some charts read rows the selection does not hold: the scatter's Pareto line and its faded off-selection
@@ -191,7 +241,7 @@
   }
 
   /* ---- the selection ---- */
-  function sync({ fiber, sel, all, set }) {
+  function sync({ fiber, sel, all, set }, cached) {
     const selected = new Map(sel.map((r) => [r.id, srcOf(r)]));
     // A model's configurations: from the full list, preferring the selected copy of a row (it carries more fields).
     const byRel = new Map();
@@ -216,6 +266,15 @@
       }
     }
     target ??= sel.map(srcOf);
+
+    if (cached) {
+      lastSet = sel;
+      if (moved && (target.length !== sel.length || target.some((row, i) => row.id !== sel[i].id))) {
+        lastSet = target;
+        set(target);
+      }
+      return { byRel };
+    }
 
     const current = new Map(sel.map((r) => [srcOf(r), r]));
     const desired = target.map((src) => {
@@ -265,8 +324,10 @@
       const prov = provider(), head = headline();
       if (head) defaults = new Set(head.defaultIds);
       if (prov) markScope(prov.fiber);
-      if (prov && cfg) inPlace(prov, releaseStore());
-      report(prov, prov && cfg ? sync(prov) : null, head);
+      const cached = prov && cfg ? modelCache(prov) : null;
+      if (cached) repriceSnapshot(cached);
+      else if (prov && cfg && !prov.value.isFetching) inPlace(prov, releaseStore());
+      report(prov, prov && cfg ? sync(prov, cached) : null, head);
     } catch (e) { console.warn("AA Plus:", e); }
   }
 
